@@ -1,0 +1,5 @@
+[wrap-git]
+directory = segatools
+url = https://gitea.tendokyu.moe/TeamTofuShop/segatools.git
+revision = 54614224fd8bbcfe497104deed49ac043bc187ac
+patch_directory = segatools

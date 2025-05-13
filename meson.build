@@ -5,6 +5,7 @@ project(
     default_options: [
         'werror=true',
     ],
+    subproject_dir: 'third_party',
 )
 
 add_project_arguments(
@@ -17,39 +18,21 @@ add_project_arguments(
 )
 
 cc = meson.get_compiler('c')
-
-if cc.get_id() != 'msvc'
-    add_project_arguments(
-        '-ffunction-sections',
-        '-fdata-sections',
-        '-Wno-unused',
-        language: 'c',
-    )
-
-    add_project_link_arguments(
-        '-Wl,--enable-stdcall-fixup',
-        '-Wl,--exclude-all-symbols',
-        '-Wl,--gc-sections',
-        '-static-libgcc',
-        language: 'c',
-    )
-endif
-
-if cc.get_id() == 'msvc'
-    add_project_arguments(
-        '/wd4819',
-        language: 'c',
-    )
-endif
+inc = include_directories('.')
 
 dxguid_lib = cc.find_library('dxguid')
+shlwapi_lib = cc.find_library('shlwapi')
 
-inc = include_directories('.')
-capnhook = subproject('capnhook')
+segatools = subproject('segatools')
+hook_dep = segatools.get_variable('segatools_hook_dep')
+hooklib_dep = segatools.get_variable('segatools_hooklib_dep')
+dprintf_dep = segatools.get_variable('segatools_dprintf_dep')
 
-subdir('util')
-subdir('hooklib')
-subdir('lib/d3d9')
-subdir('lib/nvidia')
+nvapi = subproject('nvapi')
+nvapi_dep = nvapi.get_variable('nvapi_dep')
 
-subdir('main')
+subdir('src/util')
+subdir('src/d3d9')
+subdir('src/nvidia')
+
+subdir('src')

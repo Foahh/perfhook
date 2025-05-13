@@ -1,23 +1,12 @@
 .*.swp
-
 .vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-!.vscode/*.code-snippets
-
-# Local History for Visual Studio Code
 .history/
-
-# Built Visual Studio Code Extensions
 *.vsix
-
-# Suggested names for build dirs
 build/
-
-# External dependencies
-subprojects/capnhook
-
-# For enabling debug logging on local builds
+builddir/
 MesonLocalOptions.mk
+third_party/segatools
+third_party/capnhook
+vendor/
+.wraplock
+settings.json

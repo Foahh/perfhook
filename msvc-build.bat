@@ -26,10 +26,15 @@ call :detect-visual-studio
     set MESON=!MESON!
 
     call :build %2
+    if ERRORLEVEL 1 (
+        echo.
+        echo Build failed.
+        exit /b 1
+    )
 
     echo.
     echo Build done!
-    exit /b
+    exit /b 0
 
 rem This should works for Visual Studio 2017+
 :detect-visual-studio (
@@ -89,21 +94,25 @@ rem This should works for Visual Studio 2017+
 :build (
     :build_x86 (
         call %VSVARSALL% x86
+        if ERRORLEVEL 1 exit /b !ERRORLEVEL!
 
         if exist %BUILD_DIR% (
             %MESON% setup %BUILD_DIR% --buildtype release --reconfigure
         ) else (
             %MESON% setup %BUILD_DIR% --backend vs --buildtype release
         )
+        if ERRORLEVEL 1 exit /b !ERRORLEVEL!
 
         if /I not "%1"=="/PROJECTONLY" (
             pushd %BUILD_DIR%
             msbuild /m /p:Configuration=release /p:Platform=Win32 graphic_hook.sln
+            set BUILD_STATUS=!ERRORLEVEL!
             popd
+            if not !BUILD_STATUS!==0 exit /b !BUILD_STATUS!
         )
     )
 
     :end (
-        exit /b
+        exit /b 0
     )
 )
