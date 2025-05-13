@@ -1,0 +1,4 @@
+[wrap-git]
+directory = capnhook
+url = https://gitea.tendokyu.moe/TeamTofuShop/capnhook
+revision = dafd0aa336ab80ba87a82370a9dc95a3389ef5e5
