@@ -2,8 +2,8 @@
 #include <stdlib.h>
 #include <windows.h>
 
-#include "hook/process.h"
 #include "d3d9/d3d9.h"
+#include "hook/process.h"
 #include "nvidia/nvidia.h"
 #include "util/winapi.h"
 
