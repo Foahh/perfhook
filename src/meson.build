@@ -1,5 +1,5 @@
 shared_library(
-    'graphic_hook',
+    'perfhook',
     name_prefix: '',
     include_directories: inc,
     implicit_include_directories: false,

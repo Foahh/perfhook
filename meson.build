@@ -1,5 +1,5 @@
 project(
-    'graphic_hook',
+    'perfhook',
     'c',
     version: '1.0.0',
     default_options: [

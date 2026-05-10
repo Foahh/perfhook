@@ -105,7 +105,7 @@ rem This should works for Visual Studio 2017+
 
         if /I not "%1"=="/PROJECTONLY" (
             pushd %BUILD_DIR%
-            msbuild /m /p:Configuration=release /p:Platform=Win32 graphic_hook.sln
+            msbuild /m /p:Configuration=release /p:Platform=Win32 perfhook.sln
             set BUILD_STATUS=!ERRORLEVEL!
             popd
             if not !BUILD_STATUS!==0 exit /b !BUILD_STATUS!
