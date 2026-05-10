@@ -5,7 +5,6 @@
 #include <windows.h>
 
 #include "hook/com-proxy.h"
-#include "hook/procaddr.h"
 #include "hook/table.h"
 #include "hooklib/dll.h"
 #include "util/dprintf.h"
@@ -19,31 +18,17 @@ typedef HRESULT(WINAPI* Direct3DCreate9Ex_t)(UINT sdk_ver,
 static HRESULT STDMETHODCALLTYPE my_IDirect3D9_CreateDevice(
     IDirect3D9* self, UINT adapter, D3DDEVTYPE type, HWND hwnd, DWORD flags,
     D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** pdev);
-static HRESULT STDMETHODCALLTYPE my_IDirect3D9Ex_CreateDevice(
-    IDirect3D9Ex* self, UINT adapter, D3DDEVTYPE type, HWND hwnd, DWORD flags,
-    D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** pdev);
-static HRESULT STDMETHODCALLTYPE my_IDirect3D9Ex_CreateDeviceEx(
-    IDirect3D9Ex* self, UINT adapter, D3DDEVTYPE type, HWND hwnd, DWORD flags,
-    D3DPRESENT_PARAMETERS* pp, D3DDISPLAYMODEEX* fullscreen_display_mode,
-    IDirect3DDevice9Ex** pdev);
 static HMODULE d3d9_hook_load_real(void);
 
 static Direct3DCreate9_t next_Direct3DCreate9;
 static Direct3DCreate9Ex_t next_Direct3DCreate9Ex;
 static bool d3d9_hook_initted;
 
-static const struct hook_symbol gfx_hooks[] = {
-    {
-        .name = "Direct3DCreate9",
-        .patch = Direct3DCreate9,
-        .link = (void**)&next_Direct3DCreate9,
-    },
-    {
-        .name = "Direct3DCreate9Ex",
-        .patch = Direct3DCreate9Ex,
-        .link = (void**)&next_Direct3DCreate9Ex,
-    },
-};
+static const struct hook_symbol gfx_hooks[] = {{
+    .name = "Direct3DCreate9",
+    .patch = Direct3DCreate9,
+    .link = (void**)&next_Direct3DCreate9,
+}};
 
 static HMODULE d3d9;
 
@@ -83,7 +68,6 @@ void d3d9_hook_load(HINSTANCE self) {
 
   if (!d3d9_hook_initted) {
     hook_table_apply(NULL, "d3d9.dll", gfx_hooks, _countof(gfx_hooks));
-    proc_addr_table_push(NULL, "d3d9.dll", gfx_hooks, _countof(gfx_hooks));
     d3d9_hook_initted = true;
   }
 
@@ -125,10 +109,11 @@ IDirect3D9* WINAPI Direct3DCreate9(UINT sdk_ver) {
   IDirect3D9Vtbl* vtbl;
   IDirect3D9* api = NULL;
   HRESULT hr;
+  size_t factory_vtbl_size;
 
   D3D9_LOG("Direct3DCreate9 hook hit\n");
 
-  if (next_Direct3DCreate9 == NULL) {
+  if (next_Direct3DCreate9 == NULL || next_Direct3DCreate9Ex == NULL) {
     d3d9_hook_load(NULL);
   }
   if (next_Direct3DCreate9 == NULL) {
@@ -137,13 +122,33 @@ IDirect3D9* WINAPI Direct3DCreate9(UINT sdk_ver) {
   }
 
   api = NULL;
-  api = next_Direct3DCreate9(sdk_ver);
-  if (api == NULL) {
-    D3D9_LOG("next_Direct3DCreate9 returned NULL\n");
-    goto fail;
+  factory_vtbl_size = sizeof(IDirect3D9Vtbl);
+  if (next_Direct3DCreate9Ex != NULL) {
+    IDirect3D9Ex* d3d9ex = NULL;
+    hr = next_Direct3DCreate9Ex(sdk_ver, &d3d9ex);
+    if (SUCCEEDED(hr) && d3d9ex != NULL) {
+      api = (IDirect3D9*)d3d9ex;
+      factory_vtbl_size = sizeof(IDirect3D9ExVtbl);
+      D3D9_LOG("Direct3DCreate9: wrapped IDirect3D9Ex factory\n");
+    } else {
+      D3D9_LOG(
+          "Direct3DCreate9: Direct3DCreate9Ex failed hr=0x%08lx, using "
+          "Direct3DCreate9\n",
+          (unsigned long)hr);
+    }
   }
 
-  hr = com_proxy_wrap(&proxy, api, sizeof(*api->lpVtbl));
+  if (api == NULL) {
+    api = next_Direct3DCreate9(sdk_ver);
+    if (api == NULL) {
+      D3D9_LOG("next_Direct3DCreate9 returned NULL\n");
+      goto fail;
+    }
+    factory_vtbl_size = sizeof(IDirect3D9Vtbl);
+    D3D9_LOG("Direct3DCreate9: wrapped classic IDirect3D9 factory\n");
+  }
+
+  hr = com_proxy_wrap(&proxy, api, factory_vtbl_size);
   if (FAILED(hr)) {
     D3D9_LOG("com_proxy_wrap returned %x\n", (int)hr);
     goto fail;
@@ -160,52 +165,6 @@ fail:
   }
 
   return NULL;
-}
-
-HRESULT WINAPI Direct3DCreate9Ex(UINT sdk_ver, IDirect3D9Ex** d3d9ex) {
-  struct com_proxy* proxy;
-  IDirect3D9ExVtbl* vtbl;
-  IDirect3D9Ex* api;
-  HRESULT hr;
-
-  D3D9_LOG("Direct3DCreate9Ex hook hit\n");
-
-  if (d3d9ex == NULL) {
-    return D3DERR_INVALIDCALL;
-  }
-
-  *d3d9ex = NULL;
-
-  if (next_Direct3DCreate9Ex == NULL) {
-    d3d9_hook_load(NULL);
-  }
-  if (next_Direct3DCreate9Ex == NULL) {
-    return D3DERR_NOTAVAILABLE;
-  }
-
-  api = NULL;
-  hr = next_Direct3DCreate9Ex(sdk_ver, &api);
-  if (FAILED(hr)) {
-    return hr;
-  }
-  if (api == NULL) {
-    return D3DERR_NOTAVAILABLE;
-  }
-
-  hr = com_proxy_wrap(&proxy, api, sizeof(IDirect3D9ExVtbl));
-  if (FAILED(hr)) {
-    D3D9_LOG("com_proxy_wrap returned %x\n", (int)hr);
-    IDirect3D9Ex_Release(api);
-    return hr;
-  }
-
-  vtbl = proxy->vptr;
-  vtbl->CreateDevice = my_IDirect3D9Ex_CreateDevice;
-  vtbl->CreateDeviceEx = my_IDirect3D9Ex_CreateDeviceEx;
-
-  *d3d9ex = (IDirect3D9Ex*)proxy;
-
-  return D3D_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE my_IDirect3D9_CreateDevice(
@@ -226,7 +185,7 @@ static HRESULT STDMETHODCALLTYPE my_IDirect3D9_CreateDevice(
   real = proxy->real;
 
   if (next_Direct3DCreate9Ex == NULL) {
-    D3D9_LOG("CreateDevice: Direct3DCreate9Ex export missing, skipping");
+    D3D9_LOG("CreateDevice: Direct3DCreate9Ex not in d3d9.dll; skipping\n");
   } else {
     IDirect3D9Ex* d3d9ex = NULL;
     IDirect3DDevice9Ex* deviceEx = NULL;
@@ -239,7 +198,8 @@ static HRESULT STDMETHODCALLTYPE my_IDirect3D9_CreateDevice(
         (unsigned long)qi);
 
     if (FAILED(qi)) {
-      D3D9_LOG("CreateDevice: QI failed - real IDirect3D9 is not IDirect3D9Ex");
+      D3D9_LOG(
+          "CreateDevice: QI failed - real IDirect3D9 is not IDirect3D9Ex\n");
     } else {
       hr = IDirect3D9Ex_CreateDeviceEx(d3d9ex, adapter, type, hwnd, flags, pp,
                                        NULL, &deviceEx);
@@ -271,46 +231,6 @@ static HRESULT STDMETHODCALLTYPE my_IDirect3D9_CreateDevice(
 
   D3D9_LOG("falling back to standard D3D9 device (IDirect3D9::CreateDevice)\n");
   return IDirect3D9_CreateDevice(real, adapter, type, hwnd, flags, pp, pdev);
-}
-
-static HRESULT STDMETHODCALLTYPE my_IDirect3D9Ex_CreateDevice(
-    IDirect3D9Ex* self, UINT adapter, D3DDEVTYPE type, HWND hwnd, DWORD flags,
-    D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** pdev) {
-  return my_IDirect3D9_CreateDevice((IDirect3D9*)self, adapter, type, hwnd,
-                                    flags, pp, pdev);
-}
-
-static HRESULT STDMETHODCALLTYPE my_IDirect3D9Ex_CreateDeviceEx(
-    IDirect3D9Ex* self, UINT adapter, D3DDEVTYPE type, HWND hwnd, DWORD flags,
-    D3DPRESENT_PARAMETERS* pp, D3DDISPLAYMODEEX* fullscreen_display_mode,
-    IDirect3DDevice9Ex** pdev) {
-  struct com_proxy* proxy;
-  struct com_proxy* device_proxy;
-  IDirect3D9Ex* real;
-  IDirect3DDevice9Ex* device;
-  HRESULT hr;
-
-  D3D9_LOG("IDirect3D9Ex::CreateDeviceEx hook hit\n");
-
-  proxy = com_proxy_downcast(self);
-  real = proxy->real;
-  device = NULL;
-
-  hr = IDirect3D9Ex_CreateDeviceEx(real, adapter, type, hwnd, flags, pp,
-                                   fullscreen_display_mode, &device);
-  if (FAILED(hr)) {
-    return hr;
-  }
-
-  hr = com_proxy_wrap(&device_proxy, device, sizeof(IDirect3DDevice9ExVtbl));
-  if (FAILED(hr)) {
-    IDirect3DDevice9Ex_Release(device);
-    return hr;
-  }
-
-  *pdev = (IDirect3DDevice9Ex*)device_proxy;
-
-  return D3D_OK;
 }
 
 void d3d9_hook_unload(void) {
