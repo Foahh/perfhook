@@ -226,7 +226,8 @@ fail:
 }
 
 NvAPI_Status create_profile_if_needed(NvDRSSessionHandle h_session,
-                                      NvDRSProfileHandle *h_profile) {
+                                      NvDRSProfileHandle *h_profile,
+                                      bool *changed) {
   NvAPI_UnicodeString app_name = L"chusanApp.exe";
 
   NVDRS_APPLICATION application;
@@ -266,6 +267,7 @@ NvAPI_Status create_profile_if_needed(NvDRSSessionHandle h_session,
                 get_error_message(status2));
       return status2;
     }
+    *changed = true;
   } else if (status2 != NVAPI_OK) {
     NVAPI_LOG("error finding driver profile: %s\n", get_error_message(status2));
     return status2;
@@ -286,33 +288,62 @@ NvAPI_Status create_profile_if_needed(NvDRSSessionHandle h_session,
     return status3;
   }
 
+  *changed = true;
+
   return NVAPI_OK;
 }
 
-NvAPI_Status set_gpu_power_state(NvDRSSessionHandle h_session,
-                                 NvDRSProfileHandle h_profile) {
+static NvAPI_Status set_dword_setting_if_needed(NvDRSSessionHandle h_session,
+                                                NvDRSProfileHandle h_profile,
+                                                NvU32 setting_id, NvU32 value,
+                                                const char *setting_name,
+                                                bool *changed) {
+  NVDRS_SETTING current_setting;
+  NvAPI_Status status;
+
+  memset(&current_setting, 0, sizeof(current_setting));
+  current_setting.version = NVDRS_SETTING_VER;
+
+  status = NvAPI_DRS_GetSetting_f(h_session, h_profile, setting_id,
+                                  &current_setting);
+  if (status == NVAPI_OK && current_setting.settingType == NVDRS_DWORD_TYPE &&
+      current_setting.u32CurrentValue == value) {
+    NVAPI_LOG("%s already set\n", setting_name);
+    return NVAPI_OK;
+  }
+  if (status != NVAPI_OK && status != NVAPI_SETTING_NOT_FOUND) {
+    NVAPI_LOG("could not read %s: %s\n", setting_name,
+              get_error_message(status));
+    return status;
+  }
+
   NVDRS_SETTING drs_setting;
   memset(&drs_setting, 0, sizeof(drs_setting));
   drs_setting.version = NVDRS_SETTING_VER;
-  drs_setting.settingId = PREFERRED_PSTATE_ID;
+  drs_setting.settingId = setting_id;
   drs_setting.settingType = NVDRS_DWORD_TYPE;
-  drs_setting.u32PredefinedValue = PREFERRED_PSTATE_PREFER_MAX;
-  drs_setting.u32CurrentValue = PREFERRED_PSTATE_PREFER_MAX;
+  drs_setting.u32PredefinedValue = value;
+  drs_setting.u32CurrentValue = value;
 
-  return NvAPI_DRS_SetSetting_f(h_session, h_profile, &drs_setting);
+  status = NvAPI_DRS_SetSetting_f(h_session, h_profile, &drs_setting);
+  if (status == NVAPI_OK) {
+    *changed = true;
+  }
+
+  return status;
+}
+
+NvAPI_Status set_gpu_power_state(NvDRSSessionHandle h_session,
+                                 NvDRSProfileHandle h_profile, bool *changed) {
+  return set_dword_setting_if_needed(h_session, h_profile, PREFERRED_PSTATE_ID,
+                                     PREFERRED_PSTATE_PREFER_MAX,
+                                     "preferred PState", changed);
 }
 
 NvAPI_Status set_vsync_mode(NvDRSSessionHandle h_session,
-                            NvDRSProfileHandle h_profile) {
-  NVDRS_SETTING drs_setting;
-  memset(&drs_setting, 0, sizeof(drs_setting));
-  drs_setting.version = NVDRS_SETTING_VER;
-  drs_setting.settingId = VSYNCMODE_ID;
-  drs_setting.settingType = NVDRS_DWORD_TYPE;
-  drs_setting.u32PredefinedValue = VSYNCMODE_PASSIVE;
-  drs_setting.u32CurrentValue = VSYNCMODE_PASSIVE;
-
-  return NvAPI_DRS_SetSetting_f(h_session, h_profile, &drs_setting);
+                            NvDRSProfileHandle h_profile, bool *changed) {
+  return set_dword_setting_if_needed(h_session, h_profile, VSYNCMODE_ID,
+                                     VSYNCMODE_PASSIVE, "VSync mode", changed);
 }
 
 void nvapi_set_profile_settings(void) {
@@ -341,26 +372,33 @@ void nvapi_set_profile_settings(void) {
   }
 
   NvDRSProfileHandle h_profile = NULL;
-  NVAPI_LOG("creating NVIDIA profile for chusanApp.exe...\n");
-  if (create_profile_if_needed(h_session, &h_profile) != NVAPI_OK) {
+  bool changed = false;
+  NVAPI_LOG("checking NVIDIA profile for chusanApp.exe...\n");
+  if (create_profile_if_needed(h_session, &h_profile, &changed) != NVAPI_OK) {
     NvAPI_DRS_DestroySession_f(h_session);
     return;
   }
 
   // Set the application profile settings
-  NVAPI_LOG("setting VSync to Application Controlled...\n");
-  status = set_vsync_mode(h_session, h_profile);
+  NVAPI_LOG("checking VSync mode...\n");
+  status = set_vsync_mode(h_session, h_profile, &changed);
   if (status != NVAPI_OK) {
     NVAPI_LOG("could not set VSync mode: %s\n", get_error_message(status));
     NvAPI_DRS_DestroySession_f(h_session);
     return;
   }
 
-  NVAPI_LOG("applying preferred PState to Maximum Performance...\n");
-  status = set_gpu_power_state(h_session, h_profile);
+  NVAPI_LOG("checking preferred PState...\n");
+  status = set_gpu_power_state(h_session, h_profile, &changed);
   if (status != NVAPI_OK) {
     NVAPI_LOG("could not set preferred PState: %s\n",
               get_error_message(status));
+    NvAPI_DRS_DestroySession_f(h_session);
+    return;
+  }
+
+  if (!changed) {
+    NVAPI_LOG("driver profile already up to date; skipping save\n");
     NvAPI_DRS_DestroySession_f(h_session);
     return;
   }
