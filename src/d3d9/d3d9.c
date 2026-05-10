@@ -215,21 +215,40 @@ static HRESULT STDMETHODCALLTYPE my_IDirect3D9_CreateDevice(
   IDirect3D9* real;
   HRESULT hr;
 
-  D3D9_LOG("IDirect3D9::CreateDevice hook hit\n");
+  D3D9_LOG(
+      "IDirect3D9::CreateDevice hook hit adapter=%u devtype=%u hwnd=%p "
+      "behavior=0x%lx backbuf=%ux%u\n",
+      adapter, (unsigned)type, hwnd, (unsigned long)flags,
+      pp != NULL ? (unsigned)pp->BackBufferWidth : 0u,
+      pp != NULL ? (unsigned)pp->BackBufferHeight : 0u);
 
   proxy = com_proxy_downcast(self);
   real = proxy->real;
 
-  if (next_Direct3DCreate9Ex != NULL) {
+  if (next_Direct3DCreate9Ex == NULL) {
+    D3D9_LOG("CreateDevice: Direct3DCreate9Ex export missing, skipping");
+  } else {
     IDirect3D9Ex* d3d9ex = NULL;
     IDirect3DDevice9Ex* deviceEx = NULL;
-
-    HRESULT result =
+    HRESULT qi =
         IDirect3D9_QueryInterface(real, &IID_IDirect3D9Ex, (void**)&d3d9ex);
-    if (SUCCEEDED(result)) {
+
+    D3D9_LOG(
+        "CreateDevice: IDirect3D9::QueryInterface(IID_IDirect3D9Ex) "
+        "hr=0x%08lx\n",
+        (unsigned long)qi);
+
+    if (FAILED(qi)) {
+      D3D9_LOG("CreateDevice: QI failed - real IDirect3D9 is not IDirect3D9Ex");
+    } else {
       hr = IDirect3D9Ex_CreateDeviceEx(d3d9ex, adapter, type, hwnd, flags, pp,
                                        NULL, &deviceEx);
       IDirect3D9Ex_Release(d3d9ex);
+      d3d9ex = NULL;
+
+      D3D9_LOG(
+          "CreateDevice: IDirect3D9Ex::CreateDeviceEx hr=0x%08lx pdevEx=%p\n",
+          (unsigned long)hr, deviceEx);
 
       if (SUCCEEDED(hr)) {
         D3D9_LOG("successfully created D3D9Ex device\n");
@@ -238,6 +257,8 @@ static HRESULT STDMETHODCALLTYPE my_IDirect3D9_CreateDevice(
         hr = com_proxy_wrap(&device_proxy, (IDirect3DDevice9*)deviceEx,
                             sizeof(IDirect3DDevice9Vtbl));
         if (FAILED(hr)) {
+          D3D9_LOG("CreateDevice: com_proxy_wrap(device) failed hr=0x%08lx\n",
+                   (unsigned long)hr);
           IDirect3DDevice9Ex_Release(deviceEx);
           return hr;
         }
@@ -248,7 +269,7 @@ static HRESULT STDMETHODCALLTYPE my_IDirect3D9_CreateDevice(
     }
   }
 
-  D3D9_LOG("falling back to standard D3D9 device\n");
+  D3D9_LOG("falling back to standard D3D9 device (IDirect3D9::CreateDevice)\n");
   return IDirect3D9_CreateDevice(real, adapter, type, hwnd, flags, pp, pdev);
 }
 
