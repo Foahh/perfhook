@@ -201,16 +201,42 @@ static HRESULT STDMETHODCALLTYPE my_IDirect3D9_CreateDevice(
       D3D9_LOG(
           "CreateDevice: QI failed - real IDirect3D9 is not IDirect3D9Ex\n");
     } else {
-      hr = IDirect3D9Ex_CreateDeviceEx(d3d9ex, adapter, type, hwnd, flags, pp,
-                                       NULL, &deviceEx);
-      IDirect3D9Ex_Release(d3d9ex);
-      d3d9ex = NULL;
+      IDirect3DDevice9* dev9 = NULL;
+      HRESULT hr_factory_dev = IDirect3D9_CreateDevice(
+          (IDirect3D9*)d3d9ex, adapter, type, hwnd, flags, pp, &dev9);
 
       D3D9_LOG(
-          "CreateDevice: IDirect3D9Ex::CreateDeviceEx hr=0x%08lx pdevEx=%p\n",
-          (unsigned long)hr, deviceEx);
+          "CreateDevice: IDirect3D9Ex factory IDirect3D9::CreateDevice "
+          "hr=0x%08lx dev9=%p\n",
+          (unsigned long)hr_factory_dev, dev9);
 
-      if (SUCCEEDED(hr)) {
+      deviceEx = NULL;
+      hr = hr_factory_dev;
+      if (SUCCEEDED(hr_factory_dev) && dev9 != NULL) {
+        hr = IDirect3DDevice9_QueryInterface(dev9, &IID_IDirect3DDevice9Ex,
+                                             (void**)&deviceEx);
+        D3D9_LOG(
+            "CreateDevice: IDirect3DDevice9::QueryInterface("
+            "IID_IDirect3DDevice9Ex) hr=0x%08lx\n",
+            (unsigned long)hr);
+        IDirect3DDevice9_Release(dev9);
+      }
+
+      if (FAILED(hr) || deviceEx == NULL) {
+        if (deviceEx != NULL) {
+          IDirect3DDevice9Ex_Release(deviceEx);
+          deviceEx = NULL;
+        }
+        hr = IDirect3D9Ex_CreateDeviceEx(d3d9ex, adapter, type, hwnd, flags, pp,
+                                         NULL, &deviceEx);
+        D3D9_LOG(
+            "CreateDevice: IDirect3D9Ex::CreateDeviceEx hr=0x%08lx pdevEx=%p\n",
+            (unsigned long)hr, deviceEx);
+      }
+
+      IDirect3D9Ex_Release(d3d9ex);
+
+      if (SUCCEEDED(hr) && deviceEx != NULL) {
         D3D9_LOG("successfully created D3D9Ex device\n");
 
         struct com_proxy* device_proxy;
