@@ -13,7 +13,7 @@ shared_library(
     link_with: [
         util_lib,
         nvidia_lib,
-        d3d9_lib,
+        d3d9_hook_lib,
     ],
     sources: [
         'dllmain.c',

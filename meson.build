@@ -32,7 +32,7 @@ nvapi = subproject('nvapi')
 nvapi_dep = nvapi.get_variable('nvapi_dep')
 
 subdir('src/util')
-subdir('src/d3d9')
+subdir('src/d3d9_hook')
 subdir('src/nvidia')
 
 subdir('src')

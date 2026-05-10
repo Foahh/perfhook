@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <windows.h>
 
-#include "d3d9/d3d9.h"
+#include "d3d9_hook/d3d9_hook.h"
 #include "hook/process.h"
 #include "nvidia/nvidia.h"
 #include "util/winapi.h"

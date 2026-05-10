@@ -1,5 +1,5 @@
-d3d9_lib = static_library(
-    'd3d9',
+d3d9_hook_lib = static_library(
+    'd3d9_hook',
     include_directories: inc,
     implicit_include_directories: false,
     dependencies: [
@@ -7,10 +7,9 @@ d3d9_lib = static_library(
         hooklib_dep,
         dprintf_dep,
         dxguid_lib,
-        shlwapi_lib,
     ],
     sources: [
-        'd3d9.c',
-        'd3d9.h',
+        'd3d9_hook.c',
+        'd3d9_hook.h',
     ],
 )
